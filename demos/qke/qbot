@@ -13,10 +13,7 @@
 shopt -s expand_aliases
 . ../qbot.sh
 
-NAME=alex
-REGISTRY=registry.eadem.com
-REPO=qbo-cli
-IMAGE=$REGISTRY/$NAME/$REPO/qbo-cli
+NAME=$USER
 
 
 if type getent > /dev/null 2>&1; then
@@ -46,16 +43,15 @@ usage() {
 }
 
 
-if [ "$1" != "qce" ]; then
+if [ "$1" != "qke" ]; then
 	usage
 
 fi
 
-if [ -z "$2" ]; then
-        usage
-fi
+#if [ -z "$2" ]; then
+#        usage
+#fi
 
-NAME=$2
 
 DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
 
@@ -64,9 +60,10 @@ DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;
 printf "\033c"
 alias qbo=cli
 
-pei "qbo version | jq .version[]?"
-pe "qbo add instance $USER | jq"
-pei "qbo get insta $NAME | jq '.instances[]?'"
+pe "qbo version | jq .version[]?"
+# ADD CLUSTER
+pe "qbo add cluster $NAME | jq"
+pe "qbo get nodes $NAME | jq '.nodes[]?'"
 
 V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
 CE="api-.*:ce-"
@@ -75,19 +72,50 @@ if [[ "$V" =~ $CE ]]; then
 else
        V="cloud"
 fi
+
 if [ "$V" = "ce" ]; then
-	pei "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+        pe "export KUBECONFIG=/tmp/qbo/$NAME.conf"
 else
-	pei "qbo get instance $NAME -k | jq -r '.output[]?.sshconfig | select( . != null)' > $HOME/.qbo/$NAME.crt"
-	pei "chmod 600 $HOME/.qbo/$NAME.crt"
-fi 
+        pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+        pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+pe "kubectl get nodes"
 
-pe "qbo get ipvs alex | jq -r .ipvs[]?.vip"
+# ADD NODE
+pe "qbo add node -n3 $NAME | jq"
+if [ "$V" = "ce" ]; then
+	pe "watch kubectl get nodes"
+fi
+# STOP CLUSTER
+pe "qbo stop cluster $NAME | jq"
 
-ADDR=$(qbo get ipvs alex | jq -r .ipvs[]?.vip)
+# START CLUSTER
+pe "qbo start cluster $NAME | jq"
+if [ "$V" = "ce" ]; then
+	pe "watch kubectl get nodes"
+	pe "watch kubectl get pods -n kube-system"
+fi
 
-pe "ssh -i $HOME/.qbo/$NAME.crt qbo@$ADDR"
+# STOP CLUSTER
+NODE=$(qbo get node alex | jq -r .nodes[]?.name | head -1)
+pe "qbo stop node $NODE | jq"
+if [ "$V" = "ce" ]; then
+	pe "watch kubectl get nodes"
+fi
+# START NODE
+pe "qbo start node $NODE | jq"
+if [ "$V" = "ce" ]; then
+	pe "watch kubectl get nodes"
+        pe "watch kubectl get pods -n kube-system"
+fi
 
+# DELETE NODE
+pe "qbo delete node $NODE | jq"
+if [ "$V" = "ce" ]; then
+	pe "watch kubectl get nodes"
+fi
+# DELETE CLUSTER
+pe "qbo delete cluster $NAME | jq"
 
 # show a prompt so as not to reveal our true nature after
 # the demo has concluded
