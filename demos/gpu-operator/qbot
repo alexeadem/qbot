@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbot.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+KUBECTL=/usr/bin/kubectl
+DOCKER=/usr/bin/docker
+CURL=/usr/bin/curl
+REGISTRY=registry.eadem.com
+REPO=qbo-cli
+IMAGE=$REGISTRY/$NAME/$REPO/qbo-cli
+DEMODIR=$HOME/qbo-demo/coffee/ingress-nginx
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+TYPE_SPEED=20
+
+if [ -z $1 ]; then
+        echo "$0 {name}"
+        exit 1
+fi
+
+DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
+
+# hide the evidence
+# clear # requires ncurses-bin
+printf "\033c"
+
+# if [ ! -d ~/.qbo/ ]; then
+#	mkdir ~/.qbo/
+# fi
+
+if [ -f /.dockerenv ]; then
+	alias qbo=cli
+else 
+        alias qbo="docker run --rm --name qbo-cli --network host -i --user=$(id -u):$g -v $HOME/.qbo:/tmp/qbo $IMAGE cli"
+fi
+
+# qbo configuraton
+#NAME=$USER
+NAME=nvidia_gpu_operator
+
+WSL2=$(curl -s --unix-socket /var/run/docker.sock http://localhost/version | jq -r  .KernelVersion | grep 'microsoft.*WSL')
+#echo $WSL2
+
+pe "qbo version | jq .version[]?"
+pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:v1.25.11 | jq"
+pe "qbo get nodes $NAME | jq .nodes[]?"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+       V="ce"
+else
+       V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+        pei "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+        pei "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+        pei "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+
+pe "$KUBECTL get nodes"
+
+# gpu-operator
+if [ ! -z "$WSL2" ]; then
+
+        # add labels
+for i in $(kubectl get no --selector '!node-role.kubernetes.io/control-plane' -o json | jq -r '.items[].metadata.name'); do
+        pe "kubectl label node $i feature.node.kubernetes.io/pci-10de.present=true"
+done
+        OUT=templates
+        pe "kubectl apply -f $OUT/gpu-operator/crds.yaml"
+        pe "kubectl apply -f $OUT/gpu-operator/templates/"
+        pe "kubectl apply -f $OUT/gpu-operator/charts/node-feature-discovery/templates/"
+        pe "watch kubectl get pods"
+
+else
+        # linux
+        # nvidia operator
+        pe "helm repo add nvidia https://helm.ngc.nvidia.com/nvidia || true"
+        #
+        pe "helm repo update"
+        pe "helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --set driver.enabled=false"
+        if [ "$V" = "ce" ]; then
+                pe "watch $KUBECTL get pods -n gpu-operator"
+        fi
+
+fi
+
+# vector add
+pe "cat cuda/vectoradd.yaml"
+pe "kubectl apply -f cuda/vectoradd.yaml"
+if [ "$V" = "ce" ]; then
+        pe "watch $KUBECTL get pods"
+fi
+pe "kubectl logs cuda-vectoradd"
+
+p ""
