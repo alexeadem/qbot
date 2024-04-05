@@ -10,31 +10,31 @@ usage() {
 }
 
 if [ "$DEMO" = "istio" ]; then
-	echo $DEMO
+	#echo $DEMO
   	cd $QBO_DEMO/$DEMO
         ./qbot $DEMO
 elif [ "$DEMO" =  "nginx" ]; then
-	echo $DEMO
+	#echo $DEMO
 	cd $QBO_DEMO/$DEMO
 	./qbot $DEMO
 elif [ "$DEMO" =  "kubeconfig" ]; then
-        echo $DEMO
+        #echo $DEMO
         cd $QBO_DEMO/$DEMO
         ./qbot $@
 elif [ "$DEMO" =  "gpu-operator" ]; then
-        echo $DEMO
+        #echo $DEMO
         cd $QBO_DEMO/$DEMO
         ./qbot $@
 elif [ "$DEMO" =  "kubeflow" ]; then
-        echo $DEMO
+        #echo $DEMO
         cd $QBO_DEMO/$DEMO
         ./qbot $@
 elif [ "$DEMO" =  "otel" ]; then
-        echo $DEMO
+        #echo $DEMO
         cd $QBO_DEMO/$DEMO
         ./qbot $@
 elif [ "$DEMO" =  "qke" ]; then
-        echo $DEMO
+        #echo $DEMO
         cd $QBO_DEMO/$DEMO
         ./qbot $@
 else

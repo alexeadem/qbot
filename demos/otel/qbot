@@ -61,7 +61,12 @@ DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;
 # hide the evidence
 #clear
 printf "\033c"
-alias qbo=cli
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
 pei "qbo version | jq .version[]?"
 pei "qbo add cluster $NAME | jq"
 pei "qbo get nodes $NAME | jq '.nodes[]?'"
@@ -81,8 +86,16 @@ fi
 pei "kubectl get nodes"
 pe "helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts"
 pe "helm repo update open-telemetry"
-pe "cat values.yaml"
-pe "helm install my-otel-demo open-telemetry/opentelemetry-demo --values values.yaml"
+
+if [ "$V" = "ce" ]; then
+	pe "cat ce/values.yaml"
+	pe "helm install my-otel-demo open-telemetry/opentelemetry-demo --values ce/values.yaml"
+	pe "watch kubectl get pods"
+	pe "kubectl port-forward svc/my-otel-demo-frontendproxy 8080:8080"
+else 
+	pe "cat values.yaml"
+	pe "helm install my-otel-demo open-telemetry/opentelemetry-demo --values values.yaml"
+fi
 
 # helm upgrade my-otel-demo open-telemetry/opentelemetry-demo --values values.yaml
 # show a prompt so as not to reveal our true nature after
