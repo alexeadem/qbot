@@ -1,0 +1,18 @@
+1a2,4
+>   resources:
+>     limits:
+>       memory: 512Mi
+26a30
+> 
+61a66,76
+> components:
+>   frontendProxy:
+>     service:
+>       type: LoadBalancer
+>     resources:
+>       limits:
+>         memory: 256Mi
+>   featureflagService:
+>     resources:
+>       limits:
+>         memory: 2048Mi

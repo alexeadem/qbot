@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: winhd
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 35Gi
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: iso-win11
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: iso-win11
+    spec:
+      domain:
+        cpu:
+          cores: 4
+        devices:
+          disks:
+          - bootOrder: 1
+            cdrom:
+              bus: sata
+            name: cdromiso
+          - bootOrder: 2
+            disk:
+              bus: virtio
+            name: harddrive
+          - bootOrder: 3
+            cdrom:
+              bus: sata
+            name: virtiocontainerdisk
+          interfaces:
+          - masquerade: {}
+            model: e1000
+            name: default
+          tpm: {}
+        features:
+          acpi: {}
+          apic: {}
+          hyperv:
+            relaxed: {}
+            spinlocks:
+              spinlocks: 8191
+            vapic: {}
+          smm: {}
+        firmware:
+          bootloader:
+             efi:
+               secureBoot: true
+          uuid: 5d307ca9-b3ef-428c-8861-06e72d69f223
+        resources:
+          requests:
+            memory: 12G
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - name: cdromiso
+        persistentVolumeClaim:
+          claimName: iso-win11
+      - name: harddrive
+        persistentVolumeClaim:
+          claimName: winhd
+      - containerDisk:
+          image: quay.io/kubevirt/virtio-container-disk
+        name: virtiocontainerdisk

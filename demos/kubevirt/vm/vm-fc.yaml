@@ -1,0 +1,47 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: fedora-nginx
+  namespace: default
+  labels:
+    vm: nginx
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        vm: nginx
+    spec:
+      domain:
+        devices:
+          disks:
+            - disk:
+                bus: virtio
+              name: containerdisk
+            - disk:
+                bus: virtio
+              name: cloudinitdisk
+          interfaces:
+            - masquerade: {}
+              name: default
+        resources:
+          requests:
+            memory: 1024M
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 0
+      volumes:
+        - containerDisk:
+            image: kubevirt/fedora-cloud-container-disk-demo
+          name: containerdisk
+        - cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              password: fedora
+              chpasswd: { expire: False }
+              packages:
+                - nginx
+              runcmd:
+                - [ "systemctl", "enable", "--now", "nginx" ]
+          name: cloudinitdisk

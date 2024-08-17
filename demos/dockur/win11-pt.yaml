@@ -1,0 +1,70 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: win11-pt
+  labels:
+    name: win11-pt
+spec:
+  terminationGracePeriodSeconds: 120 # the Kubernetes default is 30 seconds and it may be not enough
+  containers:
+    - name: win11-pt
+      image: dockurr/windows
+      ports:
+        - containerPort: 8006
+          protocol: TCP
+        - containerPort: 3389
+          protocol: TCP
+        - containerPort: 3389
+          protocol: UDP
+      securityContext:
+        privileged: true
+      env:
+        - name: RAM_SIZE
+          value: 4G
+        - name: CPU_CORES
+          value: "2"
+        - name: DISK_SIZE
+          value: "64G"
+        - name: ARGUMENTS
+          value: "-device vfio-pci,host=01:00.0,multifunction=on"
+      volumeMounts:
+        - mountPath: /storage
+          name: storage
+        - mountPath: /dev/kvm
+          name: dev-kvm
+  volumes:
+    - name: storage
+      persistentVolumeClaim:
+        claimName: pvc-win11-pt
+    - name: dev-kvm
+      hostPath:
+        path: /dev/kvm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: windows-vnc
+spec:
+  type: LoadBalancer
+  selector:
+    name: win11-pt
+  ports:
+    - name: tcp-8006
+      protocol: TCP
+      port: 8006
+      targetPort: 8006
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: windows-rdp
+spec:
+  type: LoadBalancer
+  selector:
+    name: win11-pt
+  ports:
+    - name: tcp-3389
+      protocol: TCP
+      port: 3389
+      targetPort: 3389

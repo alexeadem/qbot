@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+NAME=alex
+REGISTRY=registry.eadem.com
+REPO=qbo-cli
+IMAGE=$REGISTRY/$NAME/$REPO/qbo-cli
+
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+usage() {
+	echo "$0 otel"
+	exit 1
+}
+if [ "$1" != "otel" ]; then
+
+	usage
+
+fi
+
+#if [ -z "$2" ]; then
+#        echo "$0 {name}"
+#        exit 1
+#fi
+
+NAME=$1
+
+DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
+
+# hide the evidence
+#clear
+printf "\033c"
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+pei "qbo version | jq .version[]?"
+pei "qbo add cluster $NAME | jq"
+pei "qbo get nodes $NAME | jq '.nodes[]?'"
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+       V="ce"
+else
+       V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+	pei "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+	pei "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+	pei "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi 
+pei "kubectl get nodes"
+pe "helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts"
+pe "helm repo update open-telemetry"
+
+if [ "$V" = "ce" ]; then
+	pe "cat ce/values.yaml"
+	pe "helm install my-otel-demo open-telemetry/opentelemetry-demo --values ce/values.yaml"
+	pe "watch kubectl get pods"
+	pe "kubectl port-forward svc/my-otel-demo-frontendproxy 8080:8080"
+else 
+	pe "cat values.yaml"
+	pe "helm install my-otel-demo open-telemetry/opentelemetry-demo --values values.yaml"
+fi
+
+# helm upgrade my-otel-demo open-telemetry/opentelemetry-demo --values values.yaml
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""

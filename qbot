@@ -1,0 +1,43 @@
+#!/bin/bash
+
+#QBO_DEMO=$HOME/qbo-demo
+QBO_DEMO=$PWD/demos
+DEMO="$1"
+color=33
+usage() {
+	echo -e "\033[1;38;5;${color}m>>>\033[0m $0 \033[1;38;5;${color}m{ qke\n | istio\n | nginx\n | kubeconfig\n | gpu-operator\n | kubeflow\n | otel }\033[0m                 -- Demo to run"
+	exit 1
+}
+
+if [ "$DEMO" = "istio" ]; then
+	#echo $DEMO
+  	cd $QBO_DEMO/$DEMO
+        ./qbot $DEMO
+elif [ "$DEMO" =  "nginx" ]; then
+	#echo $DEMO
+	cd $QBO_DEMO/$DEMO
+	./qbot $DEMO
+elif [ "$DEMO" =  "kubeconfig" ]; then
+        #echo $DEMO
+        cd $QBO_DEMO/$DEMO
+        ./qbot $@
+elif [ "$DEMO" =  "gpu-operator" ]; then
+        #echo $DEMO
+        cd $QBO_DEMO/$DEMO
+        ./qbot $@
+elif [ "$DEMO" =  "kubeflow" ]; then
+        #echo $DEMO
+        cd $QBO_DEMO/$DEMO
+        ./qbot $@
+elif [ "$DEMO" =  "otel" ]; then
+        #echo $DEMO
+        cd $QBO_DEMO/$DEMO
+        ./qbot $@
+elif [ "$DEMO" =  "qke" ]; then
+        #echo $DEMO
+        cd $QBO_DEMO/$DEMO
+        ./qbot $@
+else
+	usage
+fi
+

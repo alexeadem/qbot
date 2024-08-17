@@ -1,0 +1,25 @@
+---
+# Source: gpu-operator/charts/node-feature-discovery/templates/nfd-worker-conf.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-operator-1706246408-node-feature-discovery-worker-conf
+  namespace: default
+  labels:
+    helm.sh/chart: node-feature-discovery-0.14.2
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-operator-1706246408
+    app.kubernetes.io/version: "v0.14.2"
+    app.kubernetes.io/managed-by: Helm
+data:
+  nfd-worker.conf: |-
+    sources:
+      pci:
+        deviceClassWhitelist:
+        - "02"
+        - "0200"
+        - "0207"
+        - "0300"
+        - "0302"
+        deviceLabelFields:
+        - vendor

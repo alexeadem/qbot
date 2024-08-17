@@ -1,0 +1,10 @@
+from kfp import dsl, compiler
+
+
+@dsl.pipeline(name='pipeline-vector-add')
+def vectoradd():
+     vecadd = dsl.ContainerOp(name='vectoradd',
+                              image='nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda10.2').set_gpu_limit(1, 'nvidia')
+
+
+compiler.Compiler().compile(vectoradd, 'pipeline.yaml')
