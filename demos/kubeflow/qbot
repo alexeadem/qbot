@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+
+# add cluster
+#FLAG_1=1
+
+VERSION=v1_7_0
+NAME=kubeflow_${VERSION}_nvidia
+DOMAIN=cloud.eadem.com
+
+# Default v1.7.0
+K8S_VERSION=v1.32.3
+KUBEFLOW_VERSION=v1.10.0-rc.2
+
+
+usage() {
+        echo "Usage:" 
+        echo "$0 kubeflow {v1.7.0 | v1.8.0 | v1.9.0-rc.0 | v1.9.0-rc.2 | v1.10.0-rc.2 | v1.10.0}"
+        exit 1
+}
+
+#if [ "$1" != "kubeflow" ]; then
+#	usage
+#fi
+
+if [ -z "$1" ]; then
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+        #:
+	usage
+elif [ "$1" == "v1.8.0" ]; then
+        # v1.8.0
+        K8S_VERSION=v1.25.11
+        KUBEFLOW_VERSION=$2
+        VERSION=v1_8_0
+        NAME=kubeflow_${VERSION}_nvidia
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+elif [ "$1" == "v1.9.0-rc.0" ]; then
+        # v1.8.0
+        K8S_VERSION=v1.28.0
+        KUBEFLOW_VERSION=v1.9.0-rc.0
+        VERSION=v1_9_0
+        NAME=kubeflow_${VERSION}_nvidia
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+elif [ "$1" == "v1.9.0-rc.2" ]; then
+        # v1.9.x
+        K8S_VERSION=v1.29.4
+        KUBEFLOW_VERSION=1.9.0-rc.2
+        VERSION=v1_9_0
+        NAME=kubeflow_${VERSION}_nvidia
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+elif [ "$1" == "v1.10.0-rc.2" ]; then
+        K8S_VERSION=v1.32.3
+        KUBEFLOW_VERSION=v1.10.0-rc.2
+        VERSION=v1_10_0_rc_2
+        NAME=kubeflow_${VERSION}_nvidia
+elif [ "$1" == "v1.10.0" ]; then
+        K8S_VERSION=v1.32.3
+        KUBEFLOW_VERSION=v1.10.0
+        VERSION=v1_10_0
+        NAME=kubeflow_${VERSION}_nvidia
+elif [ "$1" == "v1.7.0" ]; then
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+        :
+else
+        usage
+fi
+
+. ../qbot.sh
+
+NAME=alex
+KUBECTL=/usr/bin/kubectl
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+#DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
+
+DEMO=$(basename "$PWD")
+DEMO_PROMPT="\e[0;38;5;250;48;5;235;1m  ☐ \e[0;38;5;235;48;5;240;22m \e[0;38;5;231;48;5;240mqbot \e[0;38;5;240;48;5;235;1m\e[0;38;5;250;48;5;235;1m $DEMO \e[0;38;5;235;1m \e[0m"
+
+# hide the evidence
+#clear
+printf "\033c"
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+#NAME=$USER
+#VERSION=v1_7_0
+
+echo "kubeflow = $KUBEFLOW_VERSION"
+echo "kubernetes = $K8S_VERSION"
+NAME=kubeflow_${VERSION}_nvidia
+
+
+WSL2=$(curl -s --unix-socket /var/run/docker.sock http://localhost/version | jq -r  .KernelVersion | grep 'microsoft.*WSL')
+#echo $WSL2
+
+# version
+pe "qbo version | jq .version[]?"
+# add cluster
+#if [ "$FLAG_1" = 1 ]; then
+#	pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:$K8S_VERSION | jq"
+#fi
+
+C=$(qbo get cluster $NAME | jq -e '.clusters[]?')
+if [ -z "$C" ]; then
+        pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:$K8S_VERSION | jq"
+else
+        echo $C | jq
+fi
+
+# get nodes
+pe "qbo get nodes $NAME | jq .nodes[]?"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+       V="ce"
+else
+       V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+        pe "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+        pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+        pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+
+pe "$KUBECTL get nodes"
+
+# gpu-operator
+if [ ! -z "$WSL2" ]; then
+	# Windows (WSL2)
+        # Add Labels
+for i in $(kubectl get no --selector '!node-role.kubernetes.io/control-plane' -o json | jq -r '.items[].metadata.name'); do
+        pe "kubectl label node $i feature.node.kubernetes.io/pci-10de.present=true"
+done
+        OUT=templates
+        pe "kubectl apply -f $OUT/gpu-operator/crds.yaml"
+        pe "kubectl apply -f $OUT/gpu-operator/templates/"
+        pe "kubectl apply -f $OUT/gpu-operator/charts/node-feature-discovery/templates/"
+        pe "watch kubectl get pods"
+
+else
+        # Linux
+        pe "helm repo add nvidia https://helm.ngc.nvidia.com/nvidia || true"
+        pe "helm repo update"
+        #pe "helm install gpu-operator nvidia/gpu-operator --version v24.9.0"
+	pe "helm search repo gpu-operator"
+        #--set toolkit.enabled=false
+	#RELEASE_NAME=gpu-operator
+	NAMESPACE=gpu-operator
+
+	if ! kubectl get ns "$NAMESPACE" >/dev/null 2>&1; then
+        	pe "helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --set driver.enabled=false --set dcgmExporter.enabled=false"
+        fi
+        if [ "$V" = "ce" ]; then
+                pe "watch $KUBECTL get pods -n gpu-operator"
+        fi
+
+fi
+
+pe "helm list -n gpu-operator"
+
+pe "cat dcgm.yaml"
+pe "kubectl apply -f dcgm.yaml"
+
+# vector add
+KUBEFLOWDIR=$PWD
+pe "cat cuda/vectoradd.yaml"
+pe "kubectl apply -f cuda/vectoradd.yaml"
+if [ "$V" = "ce" ]; then
+	pe "watch $KUBECTL get pods"
+fi
+pe "kubectl logs cuda-vectoradd"
+
+# kubeflow
+# https://jacobtomlinson.dev/posts/2022/running-kubeflow-inside-kind-with-gpu-support/
+cd $HOME
+pe "git clone https://github.com/kubeflow/manifests.git"
+pe "cd manifests/"
+pe "git fetch --all"
+# https://github.com/kubeflow/kubeflow/issues/7273
+pe "git checkout $KUBEFLOW_VERSION"
+pe "curl -s \"https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh\"  | bash"
+
+pe "while ! ./kustomize build example | kubectl apply --server-side --force-conflicts -f -; do echo \"Retrying to apply resources\"; sleep 20; done"
+# pe "while ! ./kustomize build example | kubectl apply -f -; do echo \"Retrying to apply resources\"; sleep 20; done"
+# pe "./kustomize build apps/pipeline/upstream/env/platform-agnostic-multi-user-pns | kubectl apply -f -"
+pe "./kustomize build apps/pipeline/upstream/env/platform-agnostic-multi-user | kubectl apply -f -"
+#kubectl patch svc istio-ingressgateway --type='json' -p '[{"op":"replace","path":"/spec/type","value":"NodePort"}]' -n istio-system 
+
+if [ "$V" = "ce" ]; then
+	#kubectl patch svc istio-ingressgateway --type='json' -p '[{"op":"replace","path":"/spec/type","value":"NodePort"}]' -n istio-system
+	pe "watch kubectl get pods -A"
+	echo "google-chrome 127.0.0.1:8080"
+	pe "kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80"
+else
+	pe "kubectl patch svc istio-ingressgateway --type='json' -p '[{\"op\":\"replace\",\"path\":\"/spec/type\",\"value\":\"LoadBalancer\"}]' -n istio-system"
+	KEY=$(qbo get acme -A 2>/dev/null | jq -r .acmes[]?.privkey | base64 -w 0 || echo "ERROR")
+	CRT=$(qbo get acme -A 2>/dev/null | jq -r .acmes[]?.fullchain | base64 -w 0 || echo "ERROR")
+
+	echo "KEY"
+	echo $KEY
+	echo "CRT"
+	echo $CRT
+#exit 0
+	kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubeflow-ingressgateway-certs
+  namespace: istio-system
+type: kubernetes.io/tls
+data:
+  tls.crt: ${CRT}
+  tls.key: ${KEY}
+EOF
+
+	pe "kubectl get secret kubeflow-ingressgateway-certs -n istio-system -o jsonpath=\"{.data.tls\.crt}\" | base64 -d"
+	pe "kubectl get secret kubeflow-ingressgateway-certs -n istio-system -o jsonpath=\"{.data.tls\.key}\" | base64 -d"
+
+	cd $KUBEFLOWDIR
+#	pe "cat certificate.yaml"
+#	pe "kubectl apply -f certificate.yaml"
+	pe "cat istio-ingressgateway-sds.yaml"
+	pe "kubectl apply -f istio-ingressgateway-sds.yaml"
+	pe "cat istio-ingressgateway-sds-binding.yaml" 
+	pe "kubectl apply -f istio-ingressgateway-sds-binding.yaml"
+	pe "cat gateway.yaml"
+	pe "kubectl apply -f gateway.yaml"
+	#pe "kubectl rollout restart deployment dex -n auth"
+	#pe "kubectl rollout restart deployment istio-ingressgateway -n istio-system"
+	#pe "kubectl get pods -n auth"
+	#pe "kubectl get pods -n istio-system"
+        # kubectl get pods --all-namespaces -o jsonpath="{..image}" | sed 's/ /\n/g' | sort | uniq	
+	sudo apt -y install uuid apache2-utils
+	UUID=$(uuid)
+	if [ -f $HOME/.kubeflow.pwd ]; then
+		UUID=$(cat $HOME/.kubeflow.pwd)
+	fi
+	BCRYPT_HASH=$(htpasswd -nbBC 10 "" $UUID | tr -d ':\n')
+	ENCODED_HASH=$(echo -n "$BCRYPT_HASH" | base64 -w0)
+	# Patch the Kubernetes secret
+	kubectl patch secret dex-passwords -n auth --type merge -p "{\"data\": {\"DEX_USER_PASSWORD\": \"${ENCODED_HASH}\"}}"
+
+	# Restart Dex
+	kubectl rollout restart deployment dex -n auth
+	ADDRESS=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath="{.spec.externalIPs[0]}")
+
+	printf "\033[1m%-10s %-30s\033[0m\n" "URL" "https://kubeflow.$DOMAIN"	
+	printf "\033[1m%-10s %-30s\033[0m\n" "ADDRESS" "$ADDRESS"
+	printf "\033[1m%-10s %-30s\033[0m\n" "PWD" "$UUID"
+	echo $UUID > $HOME/.kubeflow.pwd
+
+fi
+
+p ""

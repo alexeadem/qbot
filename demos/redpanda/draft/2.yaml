@@ -1,0 +1,12 @@
+apiVersion: cluster.redpanda.com/v1alpha2
+kind: Redpanda
+metadata:
+  name: redpanda
+spec:
+  chartRef: {}
+  clusterSpec:
+    fullnameOverride: <custom-hostname>
+    external:
+      enabled: true
+      type: LoadBalancer
+      domain: cloud.qbo.io

@@ -1,0 +1,13 @@
+opentelemetry-collector:
+  resources:
+    limits:
+      memory: 512Mi
+components:
+  frontendProxy:
+    resources:
+      limits:
+        memory: 256Mi
+  featureflagService:
+    resources:
+      limits:
+        memory: 2048Mi

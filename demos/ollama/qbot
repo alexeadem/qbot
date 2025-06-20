@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+NAME=$USER
+
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+usage() {
+
+	echo "$0 { name | id } "
+        exit 1
+}
+
+
+
+NAME=ollama
+
+DEMO_PROMPT="[\u@\[\e[38;5;75m\]\h\[\e[m\] \W]\\$ "
+
+# hide the evidence
+#clear
+printf "\033c"
+
+pe "lspci | grep NVIDIA"
+pe "nvidia-smi"
+if ! command -v ollama >/dev/null 2>&1; then
+	pe "curl -fsSL https://ollama.com/install.sh | sh"
+fi
+pe "ollama run llama3.2:3b --verbose"
+#pe "ollama run llama3.1:70b --verbose"
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""

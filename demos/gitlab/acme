@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+# redpanda
+# https://docs.redpanda.com/current/deploy/deployment-option/self-hosted/kubernetes/local-guide/
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbot.sh -d
+#
+# pass -h to see all options
+#################################
+
+
+ENV_FILE="./env"
+
+# Check if the .env file exists
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "ERROR: $ENV_FILE not found"
+    exit 1
+fi
+
+# Source the .env file
+set -o allexport
+source "$ENV_FILE"
+set +o allexport
+
+# Validate required variables
+MISSING_VARS=()
+REQUIRED_VARS=("DOMAIN" "CLIENT_ID" "CLIENT_SECRET")
+
+for VAR in "${REQUIRED_VARS[@]}"; do
+    if [[ -z "${!VAR}" ]]; then
+        MISSING_VARS+=("$VAR")
+    fi
+done
+
+# If any variables are missing, print an error and exit
+if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
+    echo "ERROR: Missing required variables in $ENV_FILE"
+    for VAR in "${MISSING_VARS[@]}"; do
+        echo "   - $VAR"
+    done
+    exit 1
+fi
+
+sudo apt update && sudo apt install -y gettext
+
+
+shopt -s expand_aliases
+. ../qbot.sh
+
+bold_green_prefix="\033[1;32m"
+bold_green_suffix="\033[0m"
+
+KUBECTL=/usr/bin/kubectl
+DOCKER=/usr/bin/docker
+CURL=/usr/bin/curl
+
+if type getent > /dev/null 2>&1; then
+    g=$(getent group docker | awk -F ':' '{print $3}')
+else
+    g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+TYPE_SPEED=20
+
+DEMO=$(basename "$PWD")
+if [ -z $DEMO ]; then
+    echo "$0 {name}"
+    exit 1
+fi
+
+pb() {
+    local w=80 p=$1;  shift
+    # create a string of spaces, then change them to dots
+    printf -v dots "%*s" "$(($p))" " "; dots=${dots// /▇};
+    printf "\r\e[K %3d s | %-*s"  "$p" "$*" "$dots" ;
+}
+
+
+DEMO=$(basename "$PWD")
+DEMO_PROMPT="\e[0;38;5;250;48;5;235;1m  ☐ \e[0;38;5;235;48;5;240;22m \e[0;38;5;231;48;5;240mqbot \e[0;38;5;240;48;5;235;1m\e[0;38;5;250;48;5;235;1m $DEMO \e[0;38;5;235;1m \e[0m"
+
+# hide the evidence
+# clear # requires ncurses-bin
+printf "\033c"
+
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+    alias qbo=cli
+else
+    alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+
+NAME=$DEMO
+#NAME=2d1a5414-b2e5-4e3e-b3f3-67fa5254fbb1
+pe "qbo version | jq .version[]?"
+
+C=$(qbo get cluster $NAME | jq -e '.clusters[]?')
+if [ -z "$C" ]; then
+        pe "qbo add cluster $NAME -n 3 -i hub.docker.com/kindest/node:v1.32.0 | jq"
+else
+        echo $C | jq
+fi
+pe "qbo get nodes $NAME | jq .nodes[]?"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+    V="ce"
+else
+    V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+    pe "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+    :  
+    #pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+    #pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+
+pe "qbo get acme -A | jq -r .acmes[]?.privkey | base64 -w 0"
+echo
+pe "qbo get acme -A | jq -r .acmes[]?.fullchain | base64 -w 0"
+echo
+
+KEY=$(qbo get acme -A 2>/dev/null | jq -r .acmes[]?.privkey | base64 -w 0 || echo "ERROR")
+CRT=$(qbo get acme -A 2>/dev/null | jq -r .acmes[]?.fullchain | base64 -w 0 || echo "ERROR")
+
+echo "KEY"
+echo $KEY
+echo "CRT"
+echo $CRT
+#exit 0
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wildcard-tls
+  namespace: default
+type: kubernetes.io/tls
+data:
+  tls.crt: ${CRT}
+  tls.key: ${KEY}
+EOF
+
+pe "kubectl get secret wildcard-tls -n default -o jsonpath=\"{.data.tls\.crt}\" | base64 -d"
+pe "kubectl get secret wildcard-tls -n default -o jsonpath=\"{.data.tls\.key}\" | base64 -d"
+
+
+p ""
+

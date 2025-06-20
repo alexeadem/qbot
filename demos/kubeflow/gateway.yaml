@@ -1,0 +1,25 @@
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: kubeflow-gateway
+  namespace: kubeflow
+spec:
+  selector:
+    istio: ingressgateway  # Must match the Istio ingress label exactly (usually lowercase!)
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: kubeflow-ingressgateway-certs
+    hosts:
+    - "*"
+

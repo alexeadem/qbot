@@ -1,0 +1,35 @@
+kind: VirtualMachineClone
+apiVersion: "clone.kubevirt.io/v1alpha1"
+metadata:
+  name: testclone
+
+spec:
+  # source & target definitions
+  source:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: iso-win10
+  target:
+    apiGroup: kubevirt.io
+    kind: VirtualMachine
+    name: iso-win10-clone
+
+  # labels & annotations definitions
+  labelFilters:
+    - "*"
+    - "!someKey/*"
+  annotationFilters:
+    - "anotherKey/*"
+
+  # template labels & annotations definitions
+  template:
+    labelFilters:
+      - "*"
+      - "!someKey/*"
+    annotationFilters:
+      - "anotherKey/*"
+
+  # other identity stripping specs:
+  newMacAddresses:
+    interfaceName: "00-11-22"
+  newSMBiosSerial: "new-serial"

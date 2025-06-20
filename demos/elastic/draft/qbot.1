@@ -1,0 +1,8 @@
+
+
+
+curl -s -H "authorization: Bearer FD8MHYyWkemaqEN8Ep" https://09a32493aa5d4f0b8409cce307ad330f.apm.us-central1.gcp.cloud.es.io:443/v1/traces | jq
+
+kubectl create secret generic elastic-secret --from-literal=elastic_apm_endpoint='09a32493aa5d4f0b8409cce307ad330f.apm.us-central1.gcp.cloud.es.io:443' --from-literal=elastic_apm_secret_token='FD8MHYyWkemaqEN8Ep'
+
+

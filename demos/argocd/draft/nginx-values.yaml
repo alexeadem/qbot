@@ -1,0 +1,7 @@
+controller:
+  service:
+    type: LoadBalancer
+    ports:
+      http: 80
+      https: 443
+

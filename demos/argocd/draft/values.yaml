@@ -1,0 +1,20 @@
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hosts:
+      - argocd.cloud.eadem.com
+    paths:
+      - /
+  service:
+    type: ClusterIP
+    ports:
+      https: 443
+
+  extraArgs:
+    - --tls-cert=/app/config/tls/tls.crt
+    - --tls-key=/app/config/tls/tls.key
+

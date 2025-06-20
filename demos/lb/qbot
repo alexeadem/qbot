@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbot.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+bold_green_prefix="\033[1;32m"
+bold_green_suffix="\033[0m"
+
+KUBECTL=/usr/bin/kubectl
+DOCKER=/usr/bin/docker
+CURL=/usr/bin/curl
+
+if type getent > /dev/null 2>&1; then
+    g=$(getent group docker | awk -F ':' '{print $3}')
+else
+    g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+TYPE_SPEED=20
+
+DEMO=$(basename "$PWD")
+if [ -z $DEMO ]; then
+    echo "$0 {name}"
+    exit 1
+fi
+
+pb() {
+    local w=80 p=$1;  shift
+    # create a string of spaces, then change them to dots
+    printf -v dots "%*s" "$(($p))" " "; dots=${dots// /▇};
+    printf "\r\e[K %3d s | %-*s"  "$p" "$*" "$dots" ;
+}
+
+
+DEMO=$(basename "$PWD")
+DEMO_PROMPT="\e[0;38;5;250;48;5;235;1m  ☐ \e[0;38;5;235;48;5;240;22m \e[0;38;5;231;48;5;240mqbot \e[0;38;5;240;48;5;235;1m\e[0;38;5;250;48;5;235;1m $DEMO \e[0;38;5;235;1m \e[0m"
+
+# hide the evidence
+# clear # requires ncurses-bin
+printf "\033c"
+
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+    alias qbo=cli
+else
+    alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+
+# qbo configuraton
+NAME=lb
+pe "qbo version | jq .version[]?"
+
+C=$(qbo get cluster $NAME | jq -e '.clusters[]?')
+if [ -z "$C" ]; then
+        pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:v1.32.0 | jq"
+else
+        echo $C | jq
+fi
+pe "qbo get nodes $NAME | jq .nodes[]?"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+    V="ce"
+else
+    V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+    pe "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+    #:  
+    pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+    pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+
+pe "$KUBECTL get nodes"
+
+# LB TEST
+
+tests=("nginx/nginx-1-80.yaml" "nginx/nginx-1-80-8080.yaml" "nginx/nginx-1-8080.yaml" "nginx/nginx-2-80.yaml")
+
+T=1
+
+for test in "${tests[@]}"; do
+  pe "cat $test"
+  pe "$KUBECTL apply -f $test"
+  if [ $test = "nginx/nginx-2-80.yaml" ]; then
+    T=2
+  fi
+ # i=0
+  LB=""
+  while true
+    do
+      LB=$($KUBECTL get svc nginx-service-$T -o json | jq -r '.spec.externalIPs[0] | select ( . != null)')
+      if [ ! -z "$LB" ]; then
+        #echo
+        pe "kubectl get svc -n default"
+        for PORT in $(kubectl get svc nginx-service-$T -o json | jq -r '.spec.ports[].port'); do
+          while true; do
+            response=$(curl -k -m 3 --write-out "%{http_code}" --silent --output /dev/null http://$LB:$PORT)
+            #echo $response
+            if [ "$response" = "200" ]; then
+                echo
+                echo -e "[$bold_green_prefix"$response"$bold_green_suffix]" 
+                if [ $PORT = 80 ]; then
+			echo http://$LB
+		else 
+			echo http://$LB:$PORT
+		fi
+                #pe "curl http://$LB:$PORT"
+                break
+            else
+                pb $i
+            fi
+            sleep 1
+            ((i++))
+          done
+        done
+        break
+      fi
+      sleep 1
+  done
+#   read -n 1 -s -r -p "<Press any key to continue>"
+#   printf "\n"
+done
+
+pe "kubectl delete -f nginx/nginx-1-8080.yaml"
+pe "kubectl get svc -n default"
+pe "kubectl delete -f nginx/nginx-2-80.yaml"
+pe "kubectl get svc -n default"
+
+pe "kubectl apply -f nginx/nginx-1-80.yaml"
+pe "kubectl patch svc nginx-service-1 -p '{\"spec\": {\"type\": \"ClusterIP\"}}'"
+pe "kubectl patch svc nginx-service-1 -p '{\"spec\": {\"type\": \"LoadBalancer\"}}'"
+pe "kubectl patch svc nginx-service-1 -p '{\"spec\": {\"type\": \"NodePort\"}}'"
+pe "kubectl patch svc nginx-service-1 -p '{\"spec\": {\"type\": \"LoadBalancer\"}}'"
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""
+

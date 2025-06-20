@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+
+# add cluster
+#FLAG_1=1
+
+VERSION=v1_7_0
+NAME=kubeflow_${VERSION}_nvidia
+DOMAIN=cloud.eadem.com
+
+# Default v1.7.0
+K8S_VERSION=v1.32.3
+KUBEFLOW_VERSION=v1.10.0-rc.2
+
+
+usage() {
+        echo "Usage:" 
+        echo "$0 kubeflow {v1.7.0 | v1.8.0 | v1.9.0-rc.0 | v1.9.0-rc.2 | v1.10.0-rc.2 | v1.10.0}"
+        exit 1
+}
+
+#if [ "$1" != "kubeflow" ]; then
+#	usage
+#fi
+
+if [ -z "$1" ]; then
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+        #:
+	usage
+elif [ "$1" == "v1.8.0" ]; then
+        # v1.8.0
+        K8S_VERSION=v1.25.11
+        KUBEFLOW_VERSION=$2
+        VERSION=v1_8_0
+        NAME=kubeflow_${VERSION}_nvidia
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+elif [ "$1" == "v1.9.0-rc.0" ]; then
+        # v1.8.0
+        K8S_VERSION=v1.28.0
+        KUBEFLOW_VERSION=v1.9.0-rc.0
+        VERSION=v1_9_0
+        NAME=kubeflow_${VERSION}_nvidia
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+elif [ "$1" == "v1.9.0-rc.2" ]; then
+        # v1.9.x
+        K8S_VERSION=v1.29.4
+        KUBEFLOW_VERSION=1.9.0-rc.2
+        VERSION=v1_9_0
+        NAME=kubeflow_${VERSION}_nvidia
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+elif [ "$1" == "v1.10.0-rc.2" ]; then
+        K8S_VERSION=v1.32.3
+        KUBEFLOW_VERSION=v1.10.0-rc.2
+        VERSION=v1_10_0_rc_2
+        NAME=kubeflow_${VERSION}_nvidia
+elif [ "$1" == "v1.10.0" ]; then
+        K8S_VERSION=v1.32.3
+        KUBEFLOW_VERSION=v1.10.0
+        VERSION=v1_10_0
+        NAME=kubeflow_${VERSION}_nvidia
+elif [ "$1" == "v1.7.0" ]; then
+        #echo "kubeflow = $KUBEFLOW_VERSION"
+        #echo "kubernetes = $K8S_VERSION"
+        #echo $NAME
+        :
+else
+        usage
+fi
+
+. ../qbot.sh
+
+#NAME=alex
+KUBECTL=/usr/bin/kubectl
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+#DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
+
+DEMO=$(basename "$PWD")
+DEMO_PROMPT="\e[0;38;5;250;48;5;235;1m  ☐ \e[0;38;5;235;48;5;240;22m \e[0;38;5;231;48;5;240mqbot \e[0;38;5;240;48;5;235;1m\e[0;38;5;250;48;5;235;1m $DEMO \e[0;38;5;235;1m \e[0m"
+
+# hide the evidence
+#clear
+printf "\033c"
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+#NAME=$USER
+#VERSION=v1_7_0
+
+echo "kubeflow = $KUBEFLOW_VERSION"
+echo "kubernetes = $K8S_VERSION"
+NAME=kubeflow_${VERSION}_nvidia
+
+# version
+pe "qbo version | jq .version[]?"
+# add cluster
+#if [ "$FLAG_1" = 1 ]; then
+#	pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:$K8S_VERSION | jq"
+#fi
+#echo $NAME
+if [ -z "$(qbo get cluster "$NAME" | jq -e '.clusters[]?' 2>/dev/null)" ]; then
+	#echo $C
+	#exit 0
+        pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:$K8S_VERSION | jq"
+	pe "qbo get nodes $NAME | jq .nodes[]?"
+else
+        echo $C | jq
+fi
+
+# get nodes
+
+if [ ! -f $HOME/.qbo/$NAME.conf ]; then
+  	pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+fi
+
+pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+
+pe "$KUBECTL get nodes"
+
+# vector add
+pe "cat cuda/vectoradd.yaml"
+pe "kubectl apply -f cuda/vectoradd.yaml"
+if [ "$V" = "ce" ]; then
+	pe "watch $KUBECTL get pods"
+fi
+pe "kubectl logs cuda-vectoradd"
+
+p ""

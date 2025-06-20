@@ -1,0 +1,10 @@
+
+shopt -s expand_aliases
+
+bin="cli"
+echo $version
+i=levitas/cli
+BASE=~/qbo/src/base/
+alias qbo="docker run --rm --name qbo-cli -v $BASE:/home/$(whoami)/src -v ~/.qbo:/tmp/qbo -e CLI_LOG=$CLI_LOG -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i $i cli"
+
+qbo version | jq

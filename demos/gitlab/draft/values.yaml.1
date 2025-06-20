@@ -1,0 +1,33 @@
+USER-SUPPLIED VALUES:
+certmanager-issuer:
+  email: alex@eadem.com
+gitlab:
+  gitlab-pages:
+    ingress:
+      tls:
+        secretName: pages-tls-secret
+gitlab-runner:
+  runners:
+    privileged: true
+global:
+  appConfig:
+    omniauth:
+      enabled: true
+      providers:
+      - key: google_oauth2
+        secret: gitlab-google-oauth2
+  edition: ce
+  hosts:
+    domain: eadem.com
+  pages:
+    accessControl: true
+    enabled: true
+    host: cloud.eadem.com
+  registry:
+    enabled: true
+    tls:
+      enabled: true
+      secretName: registry-tls-secret
+minio:
+  persistence:
+    size: 15G

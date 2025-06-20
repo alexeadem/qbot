@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+NAME=$USER
+
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+usage() {
+
+	echo "$0 { name | id } "
+        exit 1
+}
+
+
+if [ -z "$1" ]; then
+	usage
+fi
+
+NAME=$1
+
+DEMO=$(basename "$PWD")
+DEMO_PROMPT="\e[0;38;5;250;48;5;235;1m  ☐ \e[0;38;5;235;48;5;240;22m \e[0;38;5;231;48;5;240mqbot \e[0;38;5;240;48;5;235;1m\e[0;38;5;250;48;5;235;1m $DEMO \e[0;38;5;235;1m \e[0m"
+
+# hide the evidence
+#clear
+printf "\033c"
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+
+pe "qbo version | jq .version[]?"
+I=$(qbo get instance $NAME | jq -e '.instances[]?')
+if [ -z "$I" ]; then
+        pe "qbo add instance $NAME | jq"
+        pe "qbo get insta $NAME | jq '.instances[]?'"
+else
+        echo $I | jq
+fi
+
+if [ ! -f "$HOME/.qbo/$NAME.crt" ]; then
+        pe "qbo get instance $NAME -k | jq -r '.output[]?.sshconfig | select( . != null)' > $HOME/.qbo/$NAME.crt"
+        pe "chmod 600 $HOME/.qbo/$NAME.crt"
+fi
+if [ "$(stat -c '%a' "$HOME/.qbo/$NAME.crt")" != "600" ]; then
+	pe "chmod 600 $HOME/.qbo/$NAME.crt"
+fi
+
+#pe "qbo get ipvs $NAME | jq -r .ipvs[]?.vip"
+pe "qbo get ipvs $NAME | jq -r '.ipvs[]? | select(.node | contains(\"insta\")) | .vip'"
+ADDR=$(qbo get ipvs $NAME | jq -r '.ipvs[]? | select(.node | contains("insta")) | .vip' | head -1)
+
+pe "ssh -o StrictHostKeyChecking=no -i $HOME/.qbo/$NAME.crt qbo@$ADDR"
+
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""

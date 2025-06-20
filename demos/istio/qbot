@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbot.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+
+KUBECTL=/usr/bin/kubectl
+DOCKER=/usr/bin/docker
+CURL=/usr/bin/curl
+
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+TYPE_SPEED=20
+#
+
+if [ -z $1 ]; then
+        echo "$0 {name}"
+        exit 1
+fi
+
+DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
+
+# hide the evidence
+# clear # requires ncurses-bin
+printf "\033c"
+
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+
+# qbo configuraton
+NAME=$USER
+# https://github.com/istio/istio/tags
+ISTIO_VERSION=1.20.2
+
+pe "qbo version | jq .version[]?"
+pe "qbo add cluster $NAME | jq"
+pe "qbo get nodes $NAME | jq .nodes[]?"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+       V="ce"
+else
+       V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+        pei "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+        pei "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+        pei "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+
+pe "$KUBECTL get nodes"
+
+# exit 0
+CID=$(qbo get cluster $USER | jq -r '.clusters[]?.id | select ( . != null )' | cut -d '-' -f1)
+# Istio installation
+pe "cd ~"
+pe "export ISTIO_VERSION; curl -L https://istio.io/downloadIstio | sh -"
+pe "cd $(ls -dt ~/istio* | head -1)"
+ISTIOCTL=$PWD/bin/istioctl
+pe "$ISTIOCTL install --set profile=demo -y"
+if [ "$V" = "ce" ]; then
+        pe "watch $KUBECTL get pods -n istio-system"
+fi
+pe "$KUBECTL label namespace default istio-injection=enabled"
+pe "$KUBECTL apply -f samples/bookinfo/platform/kube/bookinfo.yaml"
+
+if [ "$V" = "ce" ]; then
+        pe "watch $KUBECTL get pods"
+fi
+
+pe "$KUBECTL apply -f samples/bookinfo/networking/bookinfo-gateway.yaml"
+
+if [ "$V" = "ce" ]; then
+        # wsl
+        # patch clusterip
+        # kubectl patch svc istio-ingressgateway --type='json' -p '[{"op":"replace","path":"/spec/type","value":"ClusterIP"}]' -n istio-system
+        # kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
+        # echo "http://localhost:8080/productpage"
+
+
+	NODEPORT=$(kubectl get svc -n istio-system -o json | jq -r '.items[].spec.ports[]? | select( .port == 80) | select(.nodePort) | .nodePort')
+	NODELST=$(kubectl get nodes -o json | jq '.items[].status.addresses[] | select(.type=="InternalIP") | .address' | tr -d '\"' | tr '\n' ' ')
+
+	for i in $NODELST; do
+
+        	echo "http://$i:$NODEPORT/productpage"
+
+	done
+else
+	EXTIP=$($KUBECTL get svc -n istio-system -o json | jq -r '.items[].spec.externalIPs[0] | select ( . != null)')
+	echo "http://$EXTIP/productpage"
+fi
+
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""

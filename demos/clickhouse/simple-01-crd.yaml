@@ -1,0 +1,48 @@
+apiVersion: "clickhouse.altinity.com/v1"
+kind: "ClickHouseInstallation"
+metadata:
+  name: "simple-01"
+spec:
+  defaults:
+    templates:
+      serviceTemplate: svc-template  # Reference to the service template
+      dataVolumeClaimTemplate: data-volume-template
+      logVolumeClaimTemplate: log-volume-template      
+  configuration:
+    users:
+      # printf 'test_password' | sha256sum
+      test_user/password_sha256_hex: 10a6e6cc8311a3e2bcc09bf6c199adecd5dd59408c343e926b129c4914f3cb01
+      # Allow access from any IP (outside Kubernetes)
+      test_user/networks/ip:
+        - 0.0.0.0/0
+    settings:
+      http_port: 8123  # Custom HTTP port
+      tcp_port: 9000   # Custom TCP port
+    clusters:
+      - name: "simple"  # Define the cluster
+  templates:
+    serviceTemplates:
+      - name: svc-template
+        generateName: chendpoint-{chi}  # Service name will be automatically generated
+        spec:
+          ports:
+            - name: http
+              port: 8123
+            - name: tcp
+              port: 9000
+          type: LoadBalancer  # Specifies that the service should be a LoadBalancer
+    volumeClaimTemplates:
+      - name: data-volume-template
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+      - name: log-volume-template
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100M

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+NAME=$USER
+
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+
+
+NAME=cuda
+
+DEMO_PROMPT="[\u@\[\e[38;5;75m\]\h\[\e[m\] \W]\\$ "
+# hide the evidence
+#clear
+printf "\033c"
+
+pe "lspci | grep NVIDIA"
+pe "nvidia-smi"
+cd ~
+
+CUDA_VERSION=$(nvidia-smi | grep -i 'CUDA Version' | awk '{print $9}')
+_CUDA_VERSION=${CUDA_VERSION/./-}
+export PATH=/usr/local/cuda-${CUDA_VERSION}/bin:${PATH}
+
+if ! command -v nvcc >/dev/null 2>&1; then
+	pe "curl -fsSL -o cuda-keyring.deb https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb"
+	pe "sudo dpkg -i cuda-keyring.deb"
+	pe "sudo rm -f cuda-keyring.deb"
+	pe "sudo apt-get update"
+	pe "sudo apt-get install -y cuda-toolkit-${_CUDA_VERSION}"
+	pe "sudo rm -rf /var/lib/apt/lists/*"
+	pe "export PATH=/usr/local/cuda-${CUDA_VERSION}/bin:${PATH}"
+fi
+
+if [ ! -d $HOME/cuda-samples ]; then
+	pe "git clone https://github.com/NVIDIA/cuda-samples.git"
+fi
+
+cd $HOME/cuda-samples
+
+if [ ! -d build ]; then
+	pe "mkdir build && cd build"
+else
+	pe "cd build"
+fi
+
+pe "cmake .."
+pe "make -j2"
+
+pe "cd $HOME/cuda-samples/Samples/1_Utilities/deviceQuery/"
+pe "nvcc -I../../../Common deviceQuery.cpp -o deviceQuery"
+pe "./deviceQuery"
+pe "cd $HOME/cuda-samples/Samples/0_Introduction/vectorAdd"
+pe "nvcc -I../../../Common vectorAdd.cu -o vectorAdd"
+pe "./vectorAdd"
+pe "cd $HOME/cuda-samples/build/Samples/6_Performance/transpose"
+pe "make VERBOSE=1"
+for i in {1..3}; do
+	pe "./transpose"
+done
+#BIN=$(find $HOME/cuda-samples/bin/x86_64/linux/release/ -maxdepth 1 -type f ! -name "*.*" -perm -og+rx)
+#for i in $BIN; do
+#	pe "$i"
+#done
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""

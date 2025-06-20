@@ -1,0 +1,26 @@
+apiVersion: cluster.redpanda.com/v1alpha2
+kind: Redpanda
+metadata:
+  name: redpanda
+spec:
+  chartRef:
+    chartVersion: 5.9.19
+  clusterSpec:
+    external:
+      enabled: true
+      type: LoadBalancer
+      domain: cloud.qbo.io
+      addresses:
+      - broker-0.cloud.qbo.io
+      - broker-1.cloud.qbo.io
+      - broker-2.cloud.qbo.io
+    auth:
+      sasl:
+        enabled: true
+        users:
+          - name: superuser
+            password: secretpassword
+    statefulset:
+      initContainers:
+        setDataDirOwnership:
+          enabled: true

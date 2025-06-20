@@ -1,0 +1,26 @@
+certmanager:
+  install: false
+gitlab-runner:
+  runners:
+    privileged: true
+global:
+  appConfig:
+    omniauth:
+      enabled: true
+      providers:
+      - key: google_oauth2
+        secret: gitlab-google-oauth2
+  edition: ce
+  hosts:
+    domain: ${DOMAIN}
+  ingress:
+    configureCertmanager: false
+    tls:
+      secretName: wildcard-tls
+  pages:
+    accessControl: true
+    enabled: true
+    host: ${DOMAIN}
+minio:
+  persistence:
+    size: 100G

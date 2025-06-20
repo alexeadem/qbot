@@ -1,0 +1,70 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: windows
+  labels:
+    name: windows
+spec:
+  terminationGracePeriodSeconds: 120 # the Kubernetes default is 30 seconds and it may be not enough
+  containers:
+    - name: windows
+      image: dockurr/windows
+      ports:
+        - containerPort: 8006
+          protocol: TCP
+        - containerPort: 3389
+          protocol: TCP
+        - containerPort: 3389
+          protocol: UDP
+      securityContext:
+        privileged: true
+      env:
+        - name: RAM_SIZE
+          value: 4G
+        - name: CPU_CORES
+          value: "2"
+        - name: DISK_SIZE
+          value: "64G"
+        - name: ARGUMENTS
+          value:  "-device virtio-gpu -display gtk,gl=on"
+      volumeMounts:
+        - mountPath: /storage
+          name: storage
+        - mountPath: /dev/nvidia0
+          name: dev-nvidia0
+        - mountPath: /dev/nvidiactl
+          name: dev-nvidiactl
+        - mountPath: /dev/nvidia-uvm
+          name: dev-nvidia-uvm
+  volumes:
+    - name: storage
+      persistentVolumeClaim:
+        claimName: windows-pvc
+    - name: dev-nvidia0
+      hostPath:
+        path: /dev/nvidia0
+    - name: dev-nvidiactl
+      hostPath:
+        path: /dev/nvidiactl
+    - name: dev-nvidia-uvm
+      hostPath:
+        path: /dev/nvidia-uvm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: windows
+spec:
+  type: LoadBalancer
+  selector:
+    name: windows
+  ports:
+    - name: tcp-8006
+      protocol: TCP
+      port: 8006
+      targetPort: 8006
+    - name: tcp-3389
+      protocol: TCP
+      port: 3389
+      targetPort: 3389

@@ -1,0 +1,15 @@
+apiVersion: cluster.redpanda.com/v1alpha2
+kind: Redpanda
+metadata:
+  name: redpanda
+spec:
+  chartRef: {}
+  clusterSpec:
+    external:
+      enabled: true
+      type: LoadBalancer
+      domain: cloud.qbo.io
+      addresses:
+      - broker-0.cloud.qbo.io
+      - broker-1.cloud.qbo.io
+      - broker-2.cloud.qbo.io

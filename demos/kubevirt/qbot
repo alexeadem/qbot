@@ -1,0 +1,416 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbo.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+#NAME=$USER
+NAME=test
+
+if type getent > /dev/null 2>&1; then
+        g=$(getent group docker | awk -F ':' '{print $3}')
+else
+        g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+# TYPE_SPEED=20
+#
+# custom prompt
+#
+# see http://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html for escape sequences
+#
+
+usage() {
+
+	echo "$0 kubevirt { windows | linux }"
+        exit 1
+}
+
+if [ "$1" != "kubevirt" ]; then
+	usage
+
+fi
+
+OS=linux
+if [ -z "$2" ]; then
+        usage
+elif [ "$2" = "linux" ]; then
+	OS=linux
+elif [ "$2" = "windows" ]; then
+        OS=windows
+else 
+	usage
+fi
+
+
+DEMO_PROMPT="\e[0;38;5;231;48;5;31;1m (qb) \e[0;38;5;31;48;5;236;22m \e[0;38;5;250;48;5;236m qbot \e[0;38;5;236;48;5;31;1m\e[0;38;5;231;48;5;31;1m $1 \e[0;38;5;31;1m \e[0m"
+
+# hide the evidence
+#clear
+printf "\033c"
+
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+        alias qbo=cli
+else
+        alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+
+# Kubevirt
+FLAG_ADD_CLUSTER=1
+FLAG_KUBEVIRT=1
+FLAG_CDI=0
+FLAG_VM=1
+
+# GPU
+FLAG_GPU_OPERATOR=1
+FLAG_VM_GPU=1
+
+pe "qbo version | jq .version[]?"
+#pe "qbo get node $NAME | jq -r '.nodes[]? | select( .name | contains(\"node-\")) | .name' | tail -1"
+# ADD CLUSTER
+if [ 1 = $FLAG_ADD_CLUSTER ]; then
+	pe "qbo add cluster $NAME | jq"
+fi
+
+pe "qbo get nodes $NAME | jq '.nodes[]?'"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+       V="ce"
+else
+       V="cloud"
+fi
+
+if [ "$V" = "ce" ]; then
+        pe "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+        pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+        pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+pe "kubectl get nodes"
+
+if [ 1 = $FLAG_KUBEVIRT ]; then
+
+	# Deploy KubeVirt
+	pe "export VERSION=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)"
+	#if [ "$V" = "ce" ]; then
+	#	pe "watch kubectl get nodes"
+	#fi
+	#pe "echo $VERSION"
+	pe "kubectl create -f https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-operator.yaml"
+	pe "kubectl create -f https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/kubevirt-cr.yaml"
+
+	if [ 1 = $FLAG_VM_GPU ]; then
+		pe "cat fg-gpu.2.yaml"
+		pe "kubectl apply -f fg-gpu.2.yaml"
+	fi
+fi
+
+# Verify components
+while true; do
+  output=$(kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.phase}")
+  if [ "$output" == "Deployed" ]; then
+    pe "kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath=\"{.status.phase}\""
+    printf "\n"
+    break
+  fi
+  sleep 1
+done
+
+#pe "kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath=\"{.status.phase}\""
+pe "kubectl get all -n kubevirt"
+
+
+ #gpu-operator
+if [ 1 = $FLAG_GPU_OPERATOR ]; then
+	if [ ! -z "$WSL2" ]; then
+
+		# add labels
+		for i in $(kubectl get no --selector '!node-role.kubernetes.io/control-plane' -o json | jq -r '.items[].metadata.name'); do
+			pe "kubectl label node $i feature.node.kubernetes.io/pci-10de.present=true"
+		done
+			OUT=templates
+                        pe "kubectl apply -f $OUT/gpu-operator/crds.yaml"
+                        pe "kubectl apply -f $OUT/gpu-operator/templates/"
+                        pe "kubectl apply -f $OUT/gpu-operator/charts/node-feature-discovery/templates/"
+                        pe "watch kubectl get pods"
+
+	else
+		 # add labels
+                for i in $(kubectl get no --selector '!node-role.kubernetes.io/control-plane' -o json | jq -r '.items[].metadata.name'); do
+                        if [ 1 = $FLAG_VM_GPU ]; then
+                                #pe "kubectl label node $i feature.node.kubernetes.io/pci-10de.present=true"
+                                # vm-passthrough
+                                # vm-vgpu
+                                pe "kubectl label node $i --overwrite nvidia.com/gpu.workload.config=vm-passthrough"
+                        fi
+                done
+		# linux
+               	# nvidia operator
+            	pe "helm repo add nvidia https://helm.ngc.nvidia.com/nvidia || true"
+		#
+		pe "helm repo update"
+		if [ 1 = $FLAG_VM_GPU ]; then
+			pe "helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --set driver.enabled=false --set sandboxWorkloads.enabled=true"
+		else
+			pe "helm install --wait --generate-name -n gpu-operator --create-namespace nvidia/gpu-operator --set driver.enabled=false"
+		fi
+
+		if [ "$V" = "ce" ]; then
+			pe "watch $KUBECTL get pods -n gpu-operator"
+		fi
+
+		 # get nvidia gpus
+                for i in $(kubectl get no --selector '!node-role.kubernetes.io/control-plane' -o json | jq -r '.items[].metadata.name'); do
+                        if [ 1 = $FLAG_VM_GPU ]; then
+                                pe "kubectl get node $i -o json | jq '.status.allocatable | with_entries(select(.key | startswith(\"nvidia.com/\"))) | with_entries(select(.value != "0"))'"
+                        fi
+                done
+
+	fi
+
+	if [ 1 = $FLAG_VM_GPU ]; then
+		:
+	else
+        	# Vector add
+		pe "cat cuda/vectoradd.yaml"
+		pe "kubectl apply -f cuda/vectoradd.yaml"
+		if [ "$V" = "ce" ]; then
+        		pe "watch $KUBECTL get pods"
+		fi
+		pe "kubectl logs cuda-vectoradd"
+	fi
+ fi
+
+if [ ! -f /usr/local/bin/virtctl ]; then
+	VERSION=$(kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt -o=jsonpath="{.status.observedKubeVirtVersion}")
+	ARCH=$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/') || windows-amd64.exe
+	echo ${ARCH}
+	curl -L -o virtctl https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/virtctl-${VERSION}-${ARCH}
+	chmod +x virtctl
+	sudo install virtctl /usr/local/bin
+fi
+# VMS
+# Windows
+if [ "$OS" = "windows" ]; then
+	
+	if [ 1 = $FLAG_CDI ]; then
+		# CDI
+		pe "export TAG=$(curl -s -w %{redirect_url} https://github.com/kubevirt/containerized-data-importer/releases/latest)"
+ 		pe "export CDI_VERSION=$(echo ${TAG##*/})"
+		pe "echo $TAG"
+		pe "kubectl create -f https://github.com/kubevirt/containerized-data-importer/releases/download/$CDI_VERSION/cdi-operator.yaml"
+		pe "kubectl create -f https://github.com/kubevirt/containerized-data-importer/releases/download/$CDI_VERSION/cdi-cr.yaml"
+		pe "kubectl get cdi cdi -n cdi"
+		pe "kubectl get pods -n cdi"
+
+		## CDI lb
+		pe "cat cdi/cdi.lb.yaml"
+		pe "kubectl apply -f cdi/cdi.lb.yaml"
+	fi
+
+	if [ 1 = $FLAG_VM ]; then
+		ADDR=$(qbo get ipvs $NAME | jq -r '.ipvs[]? | select(.node | contains("control")) | .vip' | head -1)
+		echo $ADDR
+		IMAGE=$HOME/win10hd.disk
+		#PVC=$(mktemp winhd-XXXX | tr 'A-Z' 'a-z')
+		PVC=win10hd
+		#pe "virtctl image-upload pvc $PVC --image-path=$IMAGE --access-mode=ReadWriteOnce --size=40G --uploadproxy-url=https://$ADDR --force-bind --insecure --wait-secs=60"	
+
+		if [ 1 = $FLAG_VM_GPU ]; then
+			cat <<EOF  > $PVC.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: $PVC
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 35Gi
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: $PVC
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: $PVC
+    spec:
+      domain:
+        cpu:
+          cores: 6
+        devices:
+          disks:
+          - bootOrder: 1
+            disk:
+              bus: virtio
+            name: harddrive
+          interfaces:
+            - masquerade: {}
+              name: default
+          gpus:
+            - deviceName: nvidia.com/TU117GLM_QUADRO_T1000_MOBILE
+              name: gpu1
+        machine:
+          type: q35
+        resources:
+          requests:
+            memory: 12G
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+      - name: harddrive
+        persistentVolumeClaim:
+          claimName: $PVC
+EOF
+		else
+			cat <<EOF  > $PVC.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: $PVC
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 35Gi
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: $PVC
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: $PVC
+    spec:
+      domain:
+        cpu:
+          cores: 6
+        devices:
+          disks:
+          - bootOrder: 1
+            disk:
+              bus: virtio
+            name: harddrive
+          interfaces:
+            - masquerade: {}
+              name: default
+        machine:
+          type: q35
+        resources:
+          requests:
+            memory: 12G
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+      - name: harddrive
+        persistentVolumeClaim:
+          claimName: $PVC
+EOF
+		fi
+
+		pe "cat $PVC.yaml"
+		pe "kubectl apply -f $PVC.yaml"
+
+		pe "kubectl get vm"
+		pe "virtctl start $PVC"
+
+		while true; do
+  			READY_STATUS=$(kubectl get vms -o jsonpath='{.items[*].status.ready}')
+  			if [ "$READY_STATUS" = "true" ]; then
+    				echo "VM i$PVC is ready" 
+    				break
+  			fi
+  			sleep 1
+		done
+	fi
+	exit 0
+fi
+# Linux
+if [ 1 = $FLAG_VM ]; then
+	#cd $HOME
+	#pe "wget https://kubevirt.io/labs/manifests/vm.yaml"
+	#pe "less vm.yaml"
+	LINUX_VM="vm/vm-fc.yaml"
+	pe "cat $LINUX_VM"
+	pe "kubectl apply -f $LINUX_VM"
+
+	# Start the virtual machine:
+	#pe "kubectl virt start fedora-nginx"
+	#pe "virtctl start fedora-nginx"
+	while true; do
+  		#READY_STATUS=$(kubectl get vms -o jsonpath='{.items[*].status.conditions[0].type}')
+  		READY_STATUS=$(kubectl get vms -o jsonpath='{.items[*].status.ready}')
+  		#echo "$READY_STATUS"
+  		if [ "$READY_STATUS" = "true" ]; then
+    			echo "VM is ready" 
+    			break
+  		fi
+  		sleep 1
+	done
+
+	pe "kubectl get vms"
+	pe "kubectl get vms -o yaml fedora-nginx"
+
+	# show in which node the vm is running
+	# kubectl get vmi -o=jsonpath='{.items[*].status.nodeName}'
+
+	LB="ipvs/lb-fc.yaml"
+	pe "cat $LB"
+	pe "kubectl apply -f $LB"
+
+	pe "kubectl get service vm-service"
+
+	# curl -s -o /dev/null 172.18.1.1:5678 && echo "URL exists"
+	pe "qbo get ipvs $NAME | jq -r '.ipvs[]? | select(.node | contains(\"control\")) | .vip' | head -1 | sed 's/^/http:\/\//'"
+	#ADDR=$(qbo get ipvs $NAME | jq -r '.ipvs[]? | select(.node | contains("control")) | .vip' | head -1)
+	#echo "http://$ADDR"
+
+	# troubleshoot
+	# kubectl describe vm iso-win10
+	# console
+	pe "virtctl console fedora-nginx"
+	# CTRL+] to exit
+
+	# Stop the virtual machine:
+	# pe "kubectl virt stop feodora-nginx"
+	#pe "virtctl stop fedora-nginx"
+	#pe "kubectl delete vm fedora-nginx"
+fi
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""
+
+
+
+

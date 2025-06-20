@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+#################################
+# include -=qbot=-
+# you can pass command line args
+#
+# example:
+# to disable simulated typing
+# . ../qbot.sh -d
+#
+# pass -h to see all options
+#################################
+shopt -s expand_aliases
+. ../qbot.sh
+
+bold_green_prefix="\033[1;32m"
+bold_green_suffix="\033[0m"
+
+KUBECTL=/usr/bin/kubectl
+DOCKER=/usr/bin/docker
+CURL=/usr/bin/curl
+
+if type getent > /dev/null 2>&1; then
+    g=$(getent group docker | awk -F ':' '{print $3}')
+else
+    g=$(cat /etc/group | grep docker: | awk -F ':' '{print $3}')
+fi
+
+########################
+# Configure the options
+########################
+#
+# speed at which to simulate typing. bigger num = faster
+#
+TYPE_SPEED=20
+
+DEMO=$(basename "$PWD")
+if [ -z $DEMO ]; then
+    echo "$0 {name}"
+    exit 1
+fi
+
+pb() {
+    local w=80 p=$1;  shift
+    # create a string of spaces, then change them to dots
+    printf -v dots "%*s" "$(($p))" " "; dots=${dots// /▇};
+    printf "\r\e[K %3d s | %-*s"  "$p" "$*" "$dots" ;
+}
+
+
+DEMO=$(basename "$PWD")
+DEMO_PROMPT="\e[0;38;5;250;48;5;235;1m  ☐ \e[0;38;5;235;48;5;240;22m \e[0;38;5;231;48;5;240mqbot \e[0;38;5;240;48;5;235;1m\e[0;38;5;250;48;5;235;1m $DEMO \e[0;38;5;235;1m \e[0m"
+
+# hide the evidence
+# clear # requires ncurses-bin
+printf "\033c"
+
+CLI_IMAGE=levitas/cli:latest
+if [ -f /.dockerenv ]; then
+    alias qbo=cli
+else
+    alias qbo="docker run --rm --name qbo-cli -e QBO_HOST=$QBO_HOST -e QBO_PORT=$QBO_PORT -e QBO_UID=$QBO_UID -e QBO_AUX=$QBO_AUX --network host -i -v ~/.qbo:/tmp/qbo $CLI_IMAGE cli"
+fi
+
+NAME=$DEMO
+pe "qbo version | jq .version[]?"
+
+C=$(qbo get cluster $NAME | jq -e '.clusters[]?')
+
+if [ -z "$C" ]; then
+	pe "qbo add cluster $NAME -i hub.docker.com/kindest/node:v1.32.0 | jq"
+else
+	echo $C | jq
+fi
+
+pe "qbo get nodes $NAME | jq .nodes[]?"
+
+V=$(qbo version | jq -r '.version[]?.qbo | select( . != null)')
+CE="api-.*:ce-"
+if [[ "$V" =~ $CE ]]; then
+    V="ce"
+else
+    V="cloud"
+fi
+if [ "$V" = "ce" ]; then
+    pe "export KUBECONFIG=/tmp/qbo/$NAME.conf"
+else
+    #:  
+    pe "qbo get cluster $NAME -k | jq -r '.output[]?.kubeconfig | select( . != null)' > $HOME/.qbo/$NAME.conf"
+    pe "export KUBECONFIG=$HOME/.qbo/$NAME.conf"
+fi
+
+pe "$KUBECTL get nodes"
+if ! kubectl get namespace argocd &> /dev/null; then
+	pe "kubectl create namespace argocd"
+fi
+#pe "kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+#pe "kubectl patch svc argocd-server -n argocd -p '{\"spec\": {\"type\": \"LoadBalancer\"}}'"
+
+# wildcard certs 
+pe "qbo get acme -A | jq -r .acmes[]?.privkey | base64 -w 0"
+echo
+pe "qbo get acme -A | jq -r .acmes[]?.fullchain | base64 -w 0"
+echo
+
+KEY=$(qbo get acme -A 2>/dev/null | jq -r .acmes[]?.privkey | base64 -w 0 || echo "ERROR")
+CRT=$(qbo get acme -A 2>/dev/null | jq -r .acmes[]?.fullchain | base64 -w 0 || echo "ERROR")
+
+echo "KEY"
+echo $KEY
+echo "CRT"
+echo $CRT
+#exit 0
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-server-tls
+  namespace: argocd
+type: kubernetes.io/tls
+data:
+  tls.crt: ${CRT}
+  tls.key: ${KEY}
+EOF
+
+pe "kubectl get secret argocd-server-tls -n argocd -o jsonpath=\"{.data.tls\.crt}\" | base64 -d"
+pe "kubectl get secret argocd-server-tls -n argocd -o jsonpath=\"{.data.tls\.key}\" | base64 -d"
+
+pe "kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+pe "kubectl patch svc argocd-server -n argocd -p '{\"spec\": {\"type\": \"LoadBalancer\"}}'"
+#pe "helm repo add argo https://argoproj.github.io/argo-helm"
+#pe "helm repo update"
+#pe "cat values.yaml"
+#pe "kubectl create namespace argocd"
+#pe "helm install argocd argo/argo-cd -n argocd -f values.yaml"
+
+if ! command -v argocd &> /dev/null
+then
+	ARCH=$(uname -m)
+    
+    	# Map architecture names to the correct ArgoCD binary
+    	if [[ "$ARCH" == "x86_64" ]]; then
+        	ARCH="amd64"
+    	elif [[ "$ARCH" == "aarch64" ]]; then
+        	ARCH="arm64"
+    	else
+        	echo "Unsupported architecture: $ARCH"
+        	exit 1
+    	fi
+        pe "cd ~"
+        pe "curl -sSL -o argocd-linux-$ARCH https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-$ARCH"
+        pe "mkdir -p ~/.local/bin"
+        pe "sudo install -m 555 argocd-linux-$ARCH  ~/.local/bin/argocd"
+        pe "export PATH=\"~/.local/bin:$PATH\""
+else
+        export PATH="~/.local/bin:$PATH"
+fi
+
+LB=$(kubectl get svc argocd-server -n argocd --ignore-not-found -o json | jq -r '.spec.externalIPs[0] | select ( . != null)')
+#echo "https://$LB"
+
+pe "argocd admin initial-password -n argocd"
+
+ARGOCD_PASSWORD=$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode)
+
+# qbo get ipvs -A | jq -r '.ipvs[]? | "sudo ip route add \(.vip) via \(.rip | sub("\\.[0-9]+$"; ".2"))"' | sort | uniq |  while read -r cmd; do $cmd; done 
+
+printf "\033[1m%-8s\033[0m %-22s\n" "USER" "admin"
+printf "\033[1m%-8s\033[0m %-22s\n" "PASSWORD" "$ARGOCD_PASSWORD"
+printf "\033[1m%-8s\033[0m %-22s\n" "ADDRESS" "$LB"
+printf "\033[1m%-8s\033[0m %-22s\n" "URL" "https://argocd.cloud.eadem.com"
+
+qbo get ipvs -A | jq -r '.ipvs[]? | "sudo ip route add \(.vip) via \(.rip | sub("\\.[0-9]+$"; ".2"))"' | sort | uniq |  while read -r cmd; do $cmd; done
+
+pe "argocd login $LB --username admin --password $ARGOCD_PASSWORD --insecure"
+
+pe "kubectl config get-contexts -o name"
+CONTEXT=$(kubectl config get-contexts -o name)
+
+pe "argocd cluster add $CONTEXT"
+
+pe "kubectl config set-context --current --namespace=argocd"
+
+pe "argocd app create guestbook --repo https://github.com/argoproj/argocd-example-apps.git --path guestbook --dest-server https://kubernetes.default.svc --dest-namespace default"
+
+pe "argocd app get guestbook"
+
+pe "argocd app sync guestbook"
+
+pe "kubectl patch svc guestbook-ui -n default -p '{\"spec\": {\"type\": \"LoadBalancer\"}}'"
+
+LB="$(kubectl get svc guestbook-ui -n default --ignore-not-found -o json | jq -r '.spec.externalIPs[0] | select ( . != null)')"
+
+printf "\033[1m%-8s\033[0m %-22s\n" "URL" "http://$LB"
+
+# show a prompt so as not to reveal our true nature after
+# the demo has concluded
+p ""
+

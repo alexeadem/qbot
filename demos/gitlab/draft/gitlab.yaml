@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gitlab-tls
+  namespace: default
+spec:
+  secretName: gitlab-gitlab-tls
+  issuerRef:
+    kind: Issuer
+    name: gitlab-issuer
+  dnsNames:
+    - gitlab.eadem.com
+

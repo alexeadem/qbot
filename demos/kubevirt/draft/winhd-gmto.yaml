@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: winhd-gmto
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 35Gi
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: winhd-gmto
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: winhd-gmto
+    spec:
+      domain:
+        cpu:
+          cores: 6
+        devices:
+          disks:
+          - bootOrder: 1
+            disk:
+              bus: virtio
+            name: harddrive
+          interfaces:
+            - masquerade: {}
+              name: default
+          gpus:
+            - deviceName: nvidia.com/TU117GLM_QUADRO_T1000_MOBILE
+              name: gpu1
+        machine:
+          type: q35
+        resources:
+          requests:
+            memory: 12G
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+      - name: harddrive
+        persistentVolumeClaim:
+          claimName: winhd-gmto

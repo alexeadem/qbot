@@ -1,0 +1,27 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: kubeflow-gateway
+  namespace: kubeflow
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      name: http
+      number: 80
+      protocol: HTTP
+    hosts:
+      - kubeflow.cloud.eadem.com
+    tls:
+      httpsRedirect: true
+  - port:
+      name: https
+      number: 443
+      protocol: HTTPS
+    hosts:
+      - kubeflow.cloud.eadem.com
+    tls:
+      mode: SIMPLE
+      credentialName: wildcard-tls  # <== use your existing secret name
+
